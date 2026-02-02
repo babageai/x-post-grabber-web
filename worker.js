@@ -72,13 +72,21 @@ function isValidXUrl(url) {
   return pattern.test(url);
 }
 
+// CORS 响应头
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+  'Access-Control-Max-Age': '86400',
+};
+
 // JSON 响应工具函数
 function jsonResponse(data, status = 200) {
   return new Response(JSON.stringify(data), {
     status,
     headers: {
       'Content-Type': 'application/json',
-      'Access-Control-Allow-Origin': '*',
+      ...corsHeaders,
     },
   });
 }
