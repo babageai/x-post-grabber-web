@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>X Post Grabber - 网页版</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="container">
+    <header class="header">
+      <h1>X Post Grabber</h1>
+      <p class="subtitle">抓取 X (Twitter) 文章内容，支持 AI 生成标签并推送到 WordPress</p>
+      <button id="settingsBtn" class="icon-btn" title="设置">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="3"></circle>
+          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+        </svg>
+      </button>
+    </header>
+
+    <!-- 主界面 -->
+    <main id="mainView">
+      <div class="input-section">
+        <label for="postUrl">文章链接：</label>
+        <input type="text" id="postUrl" placeholder="粘贴 X 文章链接，如 https://x.com/xxx/status/123456">
+        <button id="grabBtn" class="primary-btn">抓取内容</button>
+      </div>
+
+      <div id="status" class="status"></div>
+
+      <div id="preview" class="preview-section" style="display: none;">
+        <h2>预览</h2>
+        <div id="previewContent" class="preview-content"></div>
+
+        <div id="tagsSection" class="tags-section" style="display: none;">
+          <label>标签：</label>
+          <div id="tagsContainer" class="tags-container"></div>
+        </div>
+
+        <div class="action-buttons">
+          <button id="copyHtmlBtn" class="action-btn">复制 HTML</button>
+          <button id="downloadBtn" class="action-btn">下载 HTML</button>
+          <button id="pushToWpBtn" class="action-btn wp-btn">推送到 WordPress</button>
+        </div>
+      </div>
+    </main>
+
+    <!-- 设置界面 -->
+    <div id="settingsView" class="settings-view" style="display: none;">
+      <h2>设置</h2>
+      
+      <div class="settings-form">
+        <h3 class="settings-section-title">Cloudflare Worker</h3>
+        <div class="form-group">
+          <label for="workerUrl">Worker URL：</label>
+          <input type="text" id="workerUrl" placeholder="https://your-worker.xxx.workers.dev">
+          <small>部署 worker.js 后填入地址</small>
+        </div>
+
+        <div class="settings-divider"></div>
+        <h3 class="settings-section-title">WordPress 设置</h3>
+        
+        <div class="form-group">
+          <label for="wpSiteUrl">网站地址：</label>
+          <input type="text" id="wpSiteUrl" placeholder="https://your-site.com">
+          <small>WordPress 网站的完整地址</small>
+        </div>
+        <div class="form-group">
+          <label for="wpUsername">用户名：</label>
+          <input type="text" id="wpUsername" placeholder="admin">
+        </div>
+        <div class="form-group">
+          <label for="wpAppPassword">应用密码：</label>
+          <input type="password" id="wpAppPassword" placeholder="xxxx xxxx xxxx xxxx xxxx xxxx">
+          <small>在 WordPress 后台 > 用户 > 个人资料 > 应用程序密码 中生成</small>
+        </div>
+        <div class="form-group">
+          <label for="wpCategory">默认分类 ID（可选）：</label>
+          <input type="text" id="wpCategory" placeholder="1">
+          <small>文章的默认分类 ID，留空则使用默认分类</small>
+        </div>
+        <div class="form-group">
+          <label for="wpEditorType">编辑器格式：</label>
+          <select id="wpEditorType">
+            <option value="gutenberg">区块编辑器 (Gutenberg)</option>
+            <option value="classic">经典编辑器 (Classic)</option>
+          </select>
+          <small>选择推送内容的格式类型</small>
+        </div>
+
+        <div class="settings-divider"></div>
+        <h3 class="settings-section-title">AI 标签生成</h3>
+        
+        <div class="form-group">
+          <label for="aiService">AI 服务：</label>
+          <select id="aiService">
+            <option value="siliconflow">硅基流动 (免费)</option>
+            <option value="deepseek">DeepSeek (低价)</option>
+            <option value="groq">Groq (免费)</option>
+            <option value="dashscope">阿里百炼</option>
+            <option value="openai">OpenAI (GPT)</option>
+            <option value="claude">Claude (Anthropic)</option>
+            <option value="kimi">Kimi (Moonshot)</option>
+            <option value="glm">GLM (智谱)</option>
+            <option value="minimax">MiniMax</option>
+          </select>
+          <small>选择用于生成标签的 AI 服务</small>
+        </div>
+        <div class="form-group">
+          <label for="aiApiKey">API Key：</label>
+          <input type="password" id="aiApiKey" placeholder="sk-xxxxxxxx">
+          <small>对应 AI 服务的 API Key</small>
+        </div>
+        <div class="form-group">
+          <label class="checkbox-label">
+            <input type="checkbox" id="enableAutoTags" checked>
+            <span>抓取时自动生成标签</span>
+          </label>
+        </div>
+
+        <div id="settingsStatus" class="status"></div>
+        
+        <div class="settings-buttons">
+          <button id="testConnectionBtn" class="secondary-btn">测试 WordPress 连接</button>
+          <button id="saveSettingsBtn" class="primary-btn">保存设置</button>
+        </div>
+        <button id="backToMainBtn" class="back-btn">返回</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
