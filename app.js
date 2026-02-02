@@ -1127,7 +1127,7 @@ document.addEventListener('DOMContentLoaded', function() {
     showStatus('正在抓取内容...', 'loading');
 
     try {
-      const workerUrl = `${settings.workerUrl}?url=${encodeURIComponent(url)}`;
+      const workerUrl = `${settings.workerUrl.replace(/\/$/, '')}?url=${encodeURIComponent(url)}`;
       const response = await fetch(workerUrl);
       const result = await response.json();
       
@@ -1135,7 +1135,8 @@ document.addEventListener('DOMContentLoaded', function() {
         throw new Error(result.error || '抓取失败');
       }
       
-      const data = extractPostFromHtml(result.html);
+      // 新版 Worker 直接返回解析好的数据
+      const data = result.data || extractPostFromHtml(result.html);
       showStatus('提取成功！', 'success');
       showPreview(data);
     } catch (error) {

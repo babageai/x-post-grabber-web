@@ -1,62 +1,84 @@
 /**
  * X Post Grabber - Cloudflare Worker
- * 用于代理获取 X (Twitter) 页面内容，解决跨域问题
+ * 使用 fxtwitter API 获取 X (Twitter) 文章内容
  */
 
 export default {
   async fetch(request, env, ctx) {
     // 处理 CORS 预检请求
     if (request.method === 'OPTIONS') {
-      return new Response(null, {
-        headers: {
-          'Access-Control-Allow-Origin': '*',
-          'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-          'Access-Control-Allow-Headers': 'Content-Type',
-          'Access-Control-Max-Age': '86400',
-        },
-      });
+      return new Response(null, { headers: corsHeaders });
     }
 
     const url = new URL(request.url);
-    
-    // 获取要抓取的 X 文章 URL
     const targetUrl = url.searchParams.get('url');
     
     if (!targetUrl) {
       return jsonResponse({ error: '请提供 url 参数' }, 400);
     }
 
-    // 验证是否是 X/Twitter URL
-    if (!isValidXUrl(targetUrl)) {
+    // 验证是否是 X/Twitter URL 并提取信息
+    const match = targetUrl.match(/^https?:\/\/(x\.com|twitter\.com)\/(\w+)\/status\/(\d+)/);
+    if (!match) {
       return jsonResponse({ error: '请提供有效的 X/Twitter 文章链接' }, 400);
     }
 
+    const username = match[2];
+    const tweetId = match[3];
+
     try {
-      // 获取页面内容
-      const response = await fetch(targetUrl, {
+      // 使用 fxtwitter API 获取推文数据
+      const apiUrl = `https://api.fxtwitter.com/${username}/status/${tweetId}`;
+      
+      const response = await fetch(apiUrl, {
         headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-          'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
-          'Cache-Control': 'no-cache',
+          'User-Agent': 'X-Post-Grabber/1.0',
+          'Accept': 'application/json',
         },
       });
 
       if (!response.ok) {
         return jsonResponse({ 
-          error: `获取页面失败: ${response.status}`,
+          error: `获取推文失败: ${response.status}`,
           status: response.status 
         }, response.status);
       }
 
-      const html = await response.text();
+      const data = await response.json();
       
-      // 返回 HTML 内容
-      return jsonResponse({
+      if (!data.tweet) {
+        return jsonResponse({ error: '未找到推文内容' }, 404);
+      }
+
+      const tweet = data.tweet;
+      
+      // 构建返回数据
+      const result = {
         success: true,
-        html: html,
-        url: targetUrl
-      });
+        data: {
+          userInfo: {
+            name: tweet.author?.name || '',
+            username: '@' + (tweet.author?.screen_name || username),
+            avatarUrl: tweet.author?.avatar_url || ''
+          },
+          textContent: {
+            text: tweet.text || '',
+            html: formatTweetHtml(tweet.text || '')
+          },
+          mediaContent: {
+            images: extractImages(tweet),
+            videos: []
+          },
+          timeInfo: {
+            datetime: tweet.created_at || '',
+            displayText: formatTime(tweet.created_timestamp)
+          },
+          articleTitle: null,
+          originalUrl: targetUrl
+        }
+      };
+
+      return jsonResponse(result);
 
     } catch (error) {
       return jsonResponse({ 
@@ -65,12 +87,6 @@ export default {
     }
   },
 };
-
-// 验证 X/Twitter URL
-function isValidXUrl(url) {
-  const pattern = /^https?:\/\/(x\.com|twitter\.com)\/\w+\/status\/\d+/;
-  return pattern.test(url);
-}
 
 // CORS 响应头
 const corsHeaders = {
@@ -88,5 +104,84 @@ function jsonResponse(data, status = 200) {
       'Content-Type': 'application/json',
       ...corsHeaders,
     },
+  });
+}
+
+// 格式化推文文本为 HTML
+function formatTweetHtml(text) {
+  if (!text) return '';
+  
+  // 转义 HTML
+  let html = text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+  
+  // 转换链接
+  html = html.replace(
+    /(https?:\/\/[^\s]+)/g,
+    '<a href="$1" target="_blank">$1</a>'
+  );
+  
+  // 转换 @用户名
+  html = html.replace(
+    /@(\w+)/g,
+    '<a href="https://x.com/$1" target="_blank">@$1</a>'
+  );
+  
+  // 转换 #话题
+  html = html.replace(
+    /#(\w+)/g,
+    '<a href="https://x.com/hashtag/$1" target="_blank">#$1</a>'
+  );
+  
+  // 换行转 <br> 或 <p>
+  html = '<p>' + html.replace(/\n\n+/g, '</p><p>').replace(/\n/g, '<br>') + '</p>';
+  
+  return html;
+}
+
+// 提取图片
+function extractImages(tweet) {
+  const images = [];
+  
+  if (tweet.media?.photos) {
+    tweet.media.photos.forEach(photo => {
+      images.push({
+        src: photo.url || '',
+        alt: photo.altText || ''
+      });
+    });
+  }
+  
+  // 也检查 media.all
+  if (tweet.media?.all) {
+    tweet.media.all.forEach(item => {
+      if (item.type === 'photo' && item.url) {
+        // 避免重复
+        if (!images.find(img => img.src === item.url)) {
+          images.push({
+            src: item.url,
+            alt: item.altText || ''
+          });
+        }
+      }
+    });
+  }
+  
+  return images;
+}
+
+// 格式化时间
+function formatTime(timestamp) {
+  if (!timestamp) return '';
+  
+  const date = new Date(timestamp * 1000);
+  return date.toLocaleString('zh-CN', {
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit'
   });
 }
