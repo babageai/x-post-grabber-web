@@ -52,28 +52,63 @@ export default {
 
       const tweet = data.tweet;
       
+      // 检测是否是长文章格式
+      const isArticle = !!tweet.article;
+      
+      let textContent, mediaContent, articleTitle;
+      
+      if (isArticle) {
+        // 长文章格式 - 从 article.content.blocks 解析
+        const article = tweet.article;
+        articleTitle = article.title || '';
+        
+        const { text, html, images } = parseArticleBlocks(article.content?.blocks || [], article.content?.entityMap || []);
+        textContent = { text, html };
+        
+        // 提取封面图
+        const coverImages = [];
+        if (article.cover_media?.media_info?.original_img_url) {
+          coverImages.push({
+            src: article.cover_media.media_info.original_img_url,
+            alt: articleTitle
+          });
+        }
+        
+        // 合并封面图和文章内图片
+        mediaContent = {
+          images: [...coverImages, ...images],
+          videos: []
+        };
+      } else {
+        // 普通推文格式
+        articleTitle = null;
+        textContent = {
+          text: tweet.text || '',
+          html: formatTweetHtml(tweet.text || '')
+        };
+        mediaContent = {
+          images: extractImages(tweet),
+          videos: []
+        };
+      }
+      
       // 构建返回数据
       const result = {
         success: true,
         data: {
+          isArticle,
           userInfo: {
             name: tweet.author?.name || '',
             username: '@' + (tweet.author?.screen_name || username),
             avatarUrl: tweet.author?.avatar_url || ''
           },
-          textContent: {
-            text: tweet.text || '',
-            html: formatTweetHtml(tweet.text || '')
-          },
-          mediaContent: {
-            images: extractImages(tweet),
-            videos: []
-          },
+          textContent,
+          mediaContent,
           timeInfo: {
             datetime: tweet.created_at || '',
             displayText: formatTime(tweet.created_timestamp)
           },
-          articleTitle: null,
+          articleTitle,
           originalUrl: targetUrl
         }
       };
@@ -184,4 +219,172 @@ function formatTime(timestamp) {
     hour: '2-digit',
     minute: '2-digit'
   });
+}
+
+// 解析长文章的 blocks 结构
+function parseArticleBlocks(blocks, entityMap) {
+  const textParts = [];
+  const htmlParts = [];
+  const images = [];
+  
+  // 构建 entityMap 查找表
+  const entityLookup = {};
+  if (Array.isArray(entityMap)) {
+    entityMap.forEach(entity => {
+      if (entity.key !== undefined) {
+        entityLookup[entity.key] = entity.value;
+      }
+    });
+  }
+  
+  for (const block of blocks) {
+    const blockText = block.text || '';
+    const blockType = block.type || 'unstyled';
+    
+    // 跳过空块
+    if (!blockText.trim() && blockType !== 'atomic') {
+      continue;
+    }
+    
+    // 处理原子块（通常是媒体）
+    if (blockType === 'atomic') {
+      // 从 entityRanges 查找媒体
+      if (block.entityRanges) {
+        for (const range of block.entityRanges) {
+          const entity = entityLookup[range.key];
+          if (entity?.type === 'MEDIA' && entity.data?.mediaItems) {
+            // 这里只记录 mediaId，实际图片 URL 需要额外处理
+            // fxtwitter 返回的数据中可能有完整 URL
+          }
+        }
+      }
+      continue;
+    }
+    
+    // 处理文本块
+    textParts.push(blockText);
+    
+    // 生成 HTML
+    let html = escapeHtml(blockText);
+    
+    // 应用内联样式（粗体等）
+    if (block.inlineStyleRanges && block.inlineStyleRanges.length > 0) {
+      html = applyInlineStyles(blockText, block.inlineStyleRanges);
+    }
+    
+    // 处理链接
+    if (block.entityRanges) {
+      for (const range of block.entityRanges) {
+        const entity = entityLookup[range.key];
+        if (entity?.type === 'LINK' && entity.data?.url) {
+          // 简化处理：在文本末尾添加链接
+        }
+      }
+    }
+    
+    // 处理 data.urls 中的链接
+    if (block.data?.urls) {
+      for (const urlInfo of block.data.urls) {
+        const linkText = urlInfo.text || '';
+        if (linkText && html.includes(linkText)) {
+          html = html.replace(
+            linkText,
+            `<a href="${escapeHtml(linkText)}" target="_blank">${escapeHtml(linkText)}</a>`
+          );
+        }
+      }
+    }
+    
+    // 根据块类型包装 HTML
+    switch (blockType) {
+      case 'header-one':
+        html = `<h1>${html}</h1>`;
+        break;
+      case 'header-two':
+        html = `<h2>${html}</h2>`;
+        break;
+      case 'header-three':
+        html = `<h3>${html}</h3>`;
+        break;
+      case 'blockquote':
+        html = `<pre><code>${html}</code></pre>`;
+        break;
+      case 'unordered-list-item':
+        html = `<li>${html}</li>`;
+        break;
+      case 'ordered-list-item':
+        html = `<li>${html}</li>`;
+        break;
+      default:
+        html = `<p>${html}</p>`;
+    }
+    
+    htmlParts.push(html);
+  }
+  
+  // 合并连续的列表项
+  const finalHtml = mergeListItems(htmlParts.join('\n'));
+  
+  return {
+    text: textParts.join('\n\n'),
+    html: finalHtml,
+    images
+  };
+}
+
+// HTML 转义
+function escapeHtml(text) {
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
+// 应用内联样式
+function applyInlineStyles(text, styleRanges) {
+  // 按 offset 排序
+  const sorted = [...styleRanges].sort((a, b) => a.offset - b.offset);
+  
+  let result = '';
+  let lastIndex = 0;
+  
+  // 简化处理：只处理粗体
+  for (const range of sorted) {
+    const { offset, length, style } = range;
+    
+    // 添加前面未处理的文本
+    if (offset > lastIndex) {
+      result += escapeHtml(text.slice(lastIndex, offset));
+    }
+    
+    const styledText = escapeHtml(text.slice(offset, offset + length));
+    
+    if (style === 'Bold') {
+      result += `<strong>${styledText}</strong>`;
+    } else if (style === 'Italic') {
+      result += `<em>${styledText}</em>`;
+    } else {
+      result += styledText;
+    }
+    
+    lastIndex = offset + length;
+  }
+  
+  // 添加剩余文本
+  if (lastIndex < text.length) {
+    result += escapeHtml(text.slice(lastIndex));
+  }
+  
+  return result;
+}
+
+// 合并连续的列表项
+function mergeListItems(html) {
+  // 将连续的 <li> 包装到 <ul> 中
+  return html.replace(
+    /(<li>[\s\S]*?<\/li>\n?)+/g,
+    match => `<ul>\n${match}</ul>\n`
+  );
 }
