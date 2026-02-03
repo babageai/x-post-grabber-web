@@ -246,15 +246,21 @@ function parseArticleBlocks(blocks, entityMap) {
       continue;
     }
     
-    // 处理原子块（通常是媒体）
+    // 处理原子块（通常是媒体或代码块）
     if (blockType === 'atomic') {
-      // 从 entityRanges 查找媒体
+      // 从 entityRanges 查找媒体或代码块
       if (block.entityRanges) {
         for (const range of block.entityRanges) {
           const entity = entityLookup[range.key];
           if (entity?.type === 'MEDIA' && entity.data?.mediaItems) {
             // 这里只记录 mediaId，实际图片 URL 需要额外处理
             // fxtwitter 返回的数据中可能有完整 URL
+          } else if (entity?.type === 'MARKDOWN' && entity.data?.markdown) {
+            // 处理 Markdown 代码块
+            const codeHtml = parseMarkdownCodeBlock(entity.data.markdown);
+            if (codeHtml) {
+              htmlParts.push(codeHtml);
+            }
           }
         }
       }
@@ -387,4 +393,28 @@ function mergeListItems(html) {
     /(<li>[\s\S]*?<\/li>\n?)+/g,
     match => `<ul>\n${match}</ul>\n`
   );
+}
+
+// 解析 Markdown 代码块
+function parseMarkdownCodeBlock(markdown) {
+  if (!markdown) return '';
+  
+  // 匹配代码块格式: ```language\ncode\n```
+  const codeBlockRegex = /^```(\w+)?\n([\s\S]*?)\n```$/;
+  const match = markdown.trim().match(codeBlockRegex);
+  
+  if (match) {
+    const language = match[1] || '';
+    const code = match[2];
+    const escapedCode = escapeHtml(code);
+    
+    if (language) {
+      return `<pre><code class="language-${language}">${escapedCode}</code></pre>`;
+    } else {
+      return `<pre><code>${escapedCode}</code></pre>`;
+    }
+  }
+  
+  // 如果不是代码块格式，返回转义后的原始内容
+  return `<pre>${escapeHtml(markdown)}</pre>`;
 }
